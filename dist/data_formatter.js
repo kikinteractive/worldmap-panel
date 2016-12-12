@@ -98,35 +98,82 @@ System.register(['lodash', './geohash'], function (_export, _context) {
             if (!this.ctrl.panel.esGeoPoint || !this.ctrl.panel.esMetric) return;
 
             if (dataList && dataList.length > 0) {
-              (function () {
-                var highestValue = 0;
-                var lowestValue = Number.MAX_VALUE;
+              //Prometheus' returned results have a different structure than ElasticSearch.
+              //The shape is approximately: 
+              //dataList = [ 
+              //             { 
+              //               target="someGeoHash", 
+              //               datapoints = [ 
+              //                               [0=metric, 1=ticks],
+              //                               ...
+              //                            ] 
+              //             } 
+              //           ]
+              //For now, just take the latest datapoint for each geohash, since we aren't displaying
+              //the full time series on the map, and we just want the current value.
+              var isPrometheus = this.ctrl.panel.datasource == "prometheus";
+              if (isPrometheus) {
+                (function () {
+                  var highestValue = 0;
+                  var lowestValue = Number.MAX_VALUE;
 
-                dataList[0].datapoints.forEach(function (datapoint) {
-                  var encodedGeohash = datapoint[_this2.ctrl.panel.esGeoPoint];
-                  var decodedGeohash = decodeGeoHash(encodedGeohash);
+                  dataList.forEach(function (datapoint) {
+                    var encodedGeohash = datapoint.target;
+                    var decodedGeohash = decodedGeohash(encodedGeohash);
+                    var metricValue = datapoint.datapoints.last()[0];
 
-                  var dataValue = {
-                    key: encodedGeohash,
-                    locationName: _this2.ctrl.panel.esLocationName ? datapoint[_this2.ctrl.panel.esLocationName] : encodedGeohash,
-                    locationLatitude: decodedGeohash.latitude,
-                    locationLongitude: decodedGeohash.longitude,
-                    value: datapoint[_this2.ctrl.panel.esMetric],
-                    valueFormatted: datapoint[_this2.ctrl.panel.esMetric],
-                    valueRounded: 0
-                  };
+                    var dataValue = {
+                      key: encodedGeohash,
+                      locationName: encodedGeohash,
+                      locationLatitude: decodedGeohash.latitude,
+                      locationLongitude: decodedGeohash.longitude,
+                      value: metricValue, //0 is the actual metric value
+                      valueFormatted: metricValue + (metricValue == 1 ? _this2.ctrl.panel.unitSingular : _this2.ctrl.panel.unitPlural),
+                      valueRounded: _this2.kbn.roundValue(metricValue, _this2.ctrl.panel.decimals || 0)
+                    };
 
-                  if (dataValue.value > highestValue) highestValue = dataValue.value;
-                  if (dataValue.value < lowestValue) lowestValue = dataValue.value;
+                    if (dataValue.value > highestValue) highestValue = dataValue.value;
+                    if (dataValue.value < lowestValue) lowestValue = dataValue.value;
 
-                  dataValue.valueRounded = _this2.kbn.roundValue(dataValue.value, _this2.ctrl.panel.decimals || 0);
-                  data.push(dataValue);
-                });
+                    data.push(dataValue);
+                  });
 
-                data.highestValue = highestValue;
-                data.lowestValue = lowestValue;
-                data.valueRange = highestValue - lowestValue;
-              })();
+                  data.highestValue = highestValue;
+                  data.lowestValue = lowestValue;
+                  data.valueRange = highestValue - lowestValue;
+                })();
+              } else {
+                (function () {
+                  //Not Prometheus; proceed as normal.
+                  var highestValue = 0;
+                  var lowestValue = Number.MAX_VALUE;
+
+                  dataList[0].datapoints.forEach(function (datapoint) {
+                    var encodedGeohash = datapoint[_this2.ctrl.panel.esGeoPoint];
+                    var decodedGeohash = decodeGeoHash(encodedGeohash);
+
+                    var dataValue = {
+                      key: encodedGeohash,
+                      locationName: _this2.ctrl.panel.esLocationName ? datapoint[_this2.ctrl.panel.esLocationName] : encodedGeohash,
+                      locationLatitude: decodedGeohash.latitude,
+                      locationLongitude: decodedGeohash.longitude,
+                      value: datapoint[_this2.ctrl.panel.esMetric],
+                      valueFormatted: datapoint[_this2.ctrl.panel.esMetric],
+                      valueRounded: 0
+                    };
+
+                    if (dataValue.value > highestValue) highestValue = dataValue.value;
+                    if (dataValue.value < lowestValue) lowestValue = dataValue.value;
+
+                    dataValue.valueRounded = _this2.kbn.roundValue(dataValue.value, _this2.ctrl.panel.decimals || 0);
+                    data.push(dataValue);
+                  });
+
+                  data.highestValue = highestValue;
+                  data.lowestValue = lowestValue;
+                  data.valueRange = highestValue - lowestValue;
+                })();
+              }
             }
           }
         }, {
